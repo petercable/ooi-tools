@@ -1,0 +1,7 @@
+endpoint: cg-dcl-eng-dcl_telemetered
+instrument: cg-dcl-eng-dcl37-ce
+resource: CE06ISSM/D00001/dcl37
+timeout: 120
+source_data:
+- syslog
+

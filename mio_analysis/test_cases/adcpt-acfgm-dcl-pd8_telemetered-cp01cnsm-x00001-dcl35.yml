@@ -1,0 +1,6 @@
+endpoint: adcpt-acfgm-dcl-pd8_telemetered
+instrument: adcpt-acfgm-dcl-pd8
+resource: CP01CNSM/X00001/cg_data/dcl35
+timeout: 120
+source_data:
+- adcp

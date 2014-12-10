@@ -1,0 +1,6 @@
+endpoint: cg-cpm-eng-cpm_telemetered
+instrument: cg-cpm-eng-cpm-ce
+resource: CE06ISSM/D00001
+timeout: 240
+source_data:
+- irid2shore

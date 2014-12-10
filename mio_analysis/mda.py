@@ -1,10 +1,16 @@
 #!/usr/bin/env python
+"""
+Usage:
+    ./mda.py [--limit=<limit>]
+    ./mda.py <cases>... [--limit=<limit>]
 
+"""
 
 __author__ = 'Pete Cable, Dan Mergens'
 
 import os
 import sys
+import docopt
 
 dataset_dir = os.path.dirname(os.path.realpath('__file__'))
 tools_dir = os.path.dirname(dataset_dir)
@@ -70,7 +76,7 @@ def wait_for_ingest_complete():
     return edex_tools.watch_log_for('Ingest: EDEX: Ingest')
 
 
-def load_files(resource, instrument, test_file, sensor):
+def load_files(resource, instrument, test_file, sensor, limit):
     queue = 'Ingest.%s' % instrument
     log.info('send test file %s into ingest queue %s from %s', test_file, queue, resource)
     source_file = os.path.join(resource, test_file)
@@ -93,6 +99,10 @@ def load_files(resource, instrument, test_file, sensor):
             log.debug('sending file to queue: %s', f)
             edex_tools.send_file_to_queue(os.path.join(source_file, f), queue, delivery, sensor)
             num_files += 1
+
+            if limit is not None and num_files >= limit:
+                break
+
         except IOError as e:
             log.error('Exception copying input file to endpoint: %s', e)
 
@@ -104,7 +114,7 @@ def purge_edex(logfile=None):
     return edex_tools.watch_log_for('Purge Operation: PURGE_ALL_DATA completed', logfile=logfile)
 
 
-def test(test_cases):
+def test(test_cases, limit):
     try:
         logfile = edex_tools.find_latest_log()
     except OSError as e:
@@ -127,7 +137,7 @@ def test(test_cases):
         sensor = 'MDA-%.1f-%08d' % (time.time(), i)
 
         for source in test_case.source_data:
-            num_files += load_files(test_case.resource, test_case.endpoint, source, sensor)
+            num_files += load_files(test_case.resource, test_case.endpoint, source, sensor, limit)
 
     if not edex_tools.watch_log_for('Ingest: EDEX: Ingest', logfile=logfile,
                                     timeout=total_timeout, expected_count=num_files):
@@ -157,13 +167,18 @@ def mio_analysis(hostname='localhost', output_dir='./'):
 
 
 if __name__ == '__main__':
+    options = docopt.docopt(__doc__)
     test_cases = []
-    if len(sys.argv) <= 1:
-        test_cases = read_test_cases('test_cases')
-    else:
-        for each in sys.argv[1:]:
+    limit = options['--limit']
+    if limit is not None:
+        limit = int(limit)
+
+    if options['<cases>']:
+        for each in options['<cases>']:
             test_cases.extend(list(read_test_cases(each)))
+    else:
+        test_cases = read_test_cases('test_cases')
 
     edex_tools.clear_hdf5()
 
-    test(test_cases)
+    test(test_cases, limit)
