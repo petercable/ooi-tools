@@ -347,7 +347,7 @@ def execute_test(test_queue, expected_queue):
 
                 delivery = test_case.instrument.split('_')[-1]
 
-                if test_case.sensor is None:
+                if test_case.sensor is None or test_case.sensor == 'any':
                     sensor = 'VALIDATE-%.1f-%08d' % (time.time(), count)
                 else:
                     sensor = test_case.sensor
@@ -363,7 +363,10 @@ def execute_test(test_queue, expected_queue):
 
                 log.info('Fetching expected results from YML file: %s', yaml_file)
                 this_expected = get_expected(output_filepath)
-                expected_queue.put((test_case.instrument, sensor, test_file, yaml_file, this_expected))
+                if test_case.sensor == 'any':
+                    expected_queue.put((test_case.instrument, 'null', test_file, yaml_file, this_expected))
+                else:
+                    expected_queue.put((test_case.instrument, sensor, test_file, yaml_file, this_expected))
 
             else:
                 log.error('Missing test data or results: %s %s', input_filepath, output_filepath)
