@@ -1,0 +1,6 @@
+endpoint: cg-cpm-eng-cpm_telemetered
+instrument: cg-cpm-eng-cpm-gi
+resource: GI01SUMO/D00001
+timeout: 120
+source_data:
+- irid2shore

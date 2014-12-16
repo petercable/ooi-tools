@@ -1,21 +1,29 @@
 #!/usr/bin/env python
+"""
+Usage:
+    ./mda.py [--limit=<limit>]
+    ./mda.py <cases>... [--limit=<limit>]
 
+"""
 
 __author__ = 'Pete Cable, Dan Mergens'
 
 import os
 import sys
+import docopt
 
 dataset_dir = os.path.dirname(os.path.realpath('__file__'))
 tools_dir = os.path.dirname(dataset_dir)
 
 sys.path.append(tools_dir)
 
+import re
 import yaml
 import time
 import pprint
 from common import edex_tools
 from common import logger
+import numpy as np
 
 omc_dir = os.getenv('OMC_HOME')
 if omc_dir is None:
@@ -28,6 +36,8 @@ log = logger.get_logger(file_output=os.path.join(output_dir, 'everything.log'))
 log_dir = os.path.join(edex_tools.edex_dir, 'logs')
 
 DEFAULT_STANDARD_TIMEOUT = 60
+
+INGEST_RE = re.compile(r'\[Ingest\.(.*?)-\d\].*?:: (\S+) processed in: ([\d.]+) \(sec\) Latency: ([\d.]+)')
 
 
 class TestCase(object):
@@ -70,7 +80,7 @@ def wait_for_ingest_complete():
     return edex_tools.watch_log_for('Ingest: EDEX: Ingest')
 
 
-def load_files(resource, instrument, test_file, sensor):
+def load_files(resource, instrument, test_file, sensor, limit):
     queue = 'Ingest.%s' % instrument
     log.info('send test file %s into ingest queue %s from %s', test_file, queue, resource)
     source_file = os.path.join(resource, test_file)
@@ -90,9 +100,17 @@ def load_files(resource, instrument, test_file, sensor):
     for f in files:
         try:
             delivery = instrument.split('_')[-1]
-            log.debug('sending file to queue: %s', f)
-            edex_tools.send_file_to_queue(os.path.join(source_file, f), queue, delivery, sensor)
-            num_files += 1
+            filename = os.path.join(source_file, f)
+            if os.path.exists(filename):
+                log.debug('sending file to queue: %s', f)
+                edex_tools.send_file_to_queue(filename, queue, delivery, sensor)
+                num_files += 1
+            else:
+                log.error('Unable to find file specified in test case: %s', filename)
+
+            if limit is not None and num_files >= limit:
+                break
+
         except IOError as e:
             log.error('Exception copying input file to endpoint: %s', e)
 
@@ -104,7 +122,7 @@ def purge_edex(logfile=None):
     return edex_tools.watch_log_for('Purge Operation: PURGE_ALL_DATA completed', logfile=logfile)
 
 
-def test(test_cases):
+def test(test_cases, limit):
     try:
         logfile = edex_tools.find_latest_log()
     except OSError as e:
@@ -127,14 +145,52 @@ def test(test_cases):
         sensor = 'MDA-%.1f-%08d' % (time.time(), i)
 
         for source in test_case.source_data:
-            num_files += load_files(test_case.resource, test_case.endpoint, source, sensor)
+            num_files += load_files(test_case.resource, test_case.endpoint, source, sensor, limit)
 
-    if not edex_tools.watch_log_for('Ingest: EDEX: Ingest', logfile=logfile,
-                                    timeout=total_timeout, expected_count=num_files):
+    lines = edex_tools.watch_log_for('Ingest: EDEX: Ingest', logfile=logfile,
+                                     timeout=total_timeout, expected_count=num_files)
+    if len(lines) != num_files:
         log.error('Timed out waiting for ingest complete message')
         time.sleep(1)
 
+    analyze_ingest_time(lines)
     mio_analysis(hostname='localhost', output_dir=output_dir)
+
+
+def analyze_ingest_time(lines):
+    results = {}
+    for line in lines:
+        ingest_match = INGEST_RE.search(line)
+
+        if ingest_match:
+            instrument, filename, ptime, latency = ingest_match.groups()
+            ptime = float(ptime)
+            latency = float(latency)
+            results.setdefault(instrument, []).append((filename, os.stat(filename).st_size, ptime, latency))
+
+    format_string = '%-40s %9d %9d %9d %11.3f %11.3f %11.3f %11.3f %11.3f %11.3f %11.3f %11.3f'
+    header_format_string = '%-40s %9s %9s %9s %11s %11s %11s %11s %11s %11s %11s %11s'
+    log.info(header_format_string, 'instrument', 'count', 'min_size', 'max_size', 'min_ptime', 'max_ptime', 'tot_ptime',
+             'avg_ptime', 'min_latency', 'max_latency', 'avg_latency', 'tot_latency')
+    for instrument in results:
+        x = results[instrument]
+        files = [i[0] for i in x]
+        x = [i[1:] for i in x]
+        x = np.array(x)
+        x = np.transpose(x)
+        count = len(x[0])
+        min_size = min(x[0])
+        max_size = max(x[0])
+        min_ptime = min(x[1])
+        max_ptime = max(x[1])
+        tot_ptime = sum(x[1])
+        avg_ptime = tot_ptime / len(x[1])
+        min_latency = min(x[2])
+        max_latency = max(x[2])
+        tot_latency = sum(x[2])
+        avg_latency =  tot_latency / len(x[2])
+        log.info(format_string, instrument, count, min_size, max_size, min_ptime, max_ptime, tot_ptime,
+                 avg_ptime, min_latency, max_latency, avg_latency, tot_latency)
 
 
 def mio_analysis(hostname='localhost', output_dir='./'):
@@ -157,13 +213,18 @@ def mio_analysis(hostname='localhost', output_dir='./'):
 
 
 if __name__ == '__main__':
+    options = docopt.docopt(__doc__)
     test_cases = []
-    if len(sys.argv) <= 1:
-        test_cases = read_test_cases('test_cases')
-    else:
-        for each in sys.argv[1:]:
+    limit = options['--limit']
+    if limit is not None:
+        limit = int(limit)
+
+    if options['<cases>']:
+        for each in options['<cases>']:
             test_cases.extend(list(read_test_cases(each)))
+    else:
+        test_cases = read_test_cases('test_cases')
 
     edex_tools.clear_hdf5()
 
-    test(test_cases)
+    test(test_cases, limit)

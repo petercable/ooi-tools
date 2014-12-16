@@ -161,21 +161,22 @@ def watch_log_for(expected_string, logfile=None, expected_count=1, timeout=DEFAU
     log.info('timeout value: %s', timeout)
 
     end_time = time.time() + timeout
-    count = 0
+
+    lines = []
 
     try:
         while time.time() < end_time:
             data = logfile.read()
             for line in data.split('\n'):
                 if expected_string in line:
-                    count += 1
-                    log.info('Found expected string %d times of %d', count, expected_count)
-                    if count == expected_count:
-                        return True
+                    lines.append(line)
+                    log.info('Found expected string %d times of %d', len(lines), expected_count)
+                    if len(lines) == expected_count:
+                        return lines
             time.sleep(.1)
     except KeyboardInterrupt:
         pass
-    return False
+    return lines
 
 
 def parse_scorecard(scorecard):
@@ -301,6 +302,15 @@ def edex_get_json(hostname, stream, sensor, save_sample_data=False, sample_data_
     return get_record_json(r)
 
 
+def flatten_nested_list(l):
+    while True:
+        types = [type(x) for x in l]
+        if list in types:
+            l = [item for sublist in l for item in sublist]
+        else:
+            return l
+
+
 def edex_mio_report(hostname, stream, instrument, output_dir='.'):
     """
     Calculate statistics for captured data stream and write to CSV file output_dir/<stream>-<instrument>.csv.
@@ -348,5 +358,5 @@ def edex_mio_report(hostname, stream, instrument, output_dir='.'):
                 f.write("%s,%d,%f,%f,%f,%f,%f\n" % (param, len(value), v_min, v_max, median, mean, sigma))
             else:
                 s = set()
-                s.update(list(value.flatten()))
-                log.info(" - skipping non-numeric data for %s", param)
+                s.update(flatten_nested_list(value))
+                f.write("%s,%d,non-numeric,up to 10 uniques listed,,,%r\n" % (param, len(s), list(s)[:10]))

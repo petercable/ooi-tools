@@ -419,8 +419,9 @@ def test(my_test_cases):
         t.join()
 
     # wait for all ingestion to complete
-    if not edex_tools.watch_log_for('Ingest: EDEX: Ingest', logfile=logfile,
-                                    expected_count=expected_queue.qsize(), timeout=total_timeout):
+    lines = edex_tools.watch_log_for('Ingest: EDEX: Ingest', logfile=logfile,
+                                     expected_count=expected_queue.qsize(), timeout=total_timeout)
+    if len(lines) != expected_queue.qsize():
         log.error('Timed out waiting for ingest complete message')
 
     # pull expected results from the queue, break them down into individual streams then put them back in
