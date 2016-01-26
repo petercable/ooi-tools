@@ -10,8 +10,7 @@ from query_manager import QueryManager
 if __name__ == '__main__':
     refdes = sys.argv[1]
     stream = sys.argv[2]
-    count = int(sys.argv[3])
-    pool_size = int(sys.argv[4])
+    pool_size = int(sys.argv[3])
 
     subsite, node, sensor = refdes.split('-', 2)
 
